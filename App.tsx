@@ -6,7 +6,7 @@ import SnippetsManager from './components/SnippetsManager';
 import SettingsDialog from './components/SettingsDialog';
 import PortForwarding from './components/PortForwarding';
 import HostDetailsPanel from './components/HostDetailsPanel';
-import { Host, SSHKey, GroupNode, Snippet, SyncConfig, TerminalSession } from './types';
+import { Host, SSHKey, GroupNode, Snippet, SyncConfig, TerminalSession, Workspace, WorkspaceNode } from './types';
 import { TERMINAL_THEMES } from './lib/terminalThemes';
 import { 
   Plus, Search, Settings, LayoutGrid, List as ListIcon, Monitor, Command, 
@@ -242,7 +242,28 @@ function App() {
   
   // Navigation & Sessions
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string>('vault'); // 'vault' or session.id
+  const [activeTabId, setActiveTabId] = useState<string>('vault'); // 'vault', session.id, or workspace.id
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [draggingSessionId, setDraggingSessionId] = useState<string | null>(null);
+  const [dropHint, setDropHint] = useState<{
+    direction: 'horizontal' | 'vertical';
+    position: 'left' | 'right' | 'top' | 'bottom';
+    targetSessionId?: string;
+    rect?: { x: number; y: number; w: number; h: number };
+  } | null>(null);
+  const [workspaceArea, setWorkspaceArea] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const workspaceOuterRef = useRef<HTMLDivElement>(null);
+  const workspaceInnerRef = useRef<HTMLDivElement>(null);
+  const workspaceOverlayRef = useRef<HTMLDivElement>(null);
+  const [resizing, setResizing] = useState<{
+    workspaceId: string;
+    splitId: string;
+    index: number;
+    direction: 'vertical' | 'horizontal';
+    startSizes: number[];
+    startArea: { w: number; h: number };
+    startClient: { x: number; y: number };
+  } | null>(null);
 
   // Modals
   const [editingHost, setEditingHost] = useState<Host | null>(null);
@@ -262,6 +283,7 @@ function App() {
   const [newFolderName, setNewFolderName] = useState('');
   const [targetParentPath, setTargetParentPath] = useState<string | null>(null);
   const [snippetPackages, setSnippetPackages] = useState<string[]>([]);
+  const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
 
   // --- Effects ---
   useEffect(() => {
@@ -363,6 +385,223 @@ function App() {
           }
           return newSessions;
       });
+  };
+
+  const closeWorkspace = (workspaceId: string) => {
+    const remainingWorkspaces = workspaces.filter(w => w.id !== workspaceId);
+    const remainingSessions = sessions.filter(s => s.workspaceId !== workspaceId);
+    setWorkspaces(remainingWorkspaces);
+    setSessions(remainingSessions);
+
+    if (activeTabId === workspaceId) {
+      const remainingOrphans = remainingSessions.filter(s => !s.workspaceId);
+      if (remainingWorkspaces.length > 0) {
+        setActiveTabId(remainingWorkspaces[remainingWorkspaces.length - 1].id);
+      } else if (remainingOrphans.length > 0) {
+        setActiveTabId(remainingOrphans[remainingOrphans.length - 1].id);
+      } else {
+        setActiveTabId('vault');
+      }
+    }
+  };
+
+  const renameWorkspace = (workspaceId: string) => {
+    const target = workspaces.find(w => w.id === workspaceId);
+    if (!target) return;
+    const name = window.prompt('Rename workspace', target.title);
+    if (!name || !name.trim()) return;
+    setWorkspaces(prev => prev.map(w => w.id === workspaceId ? { ...w, title: name.trim() } : w));
+  };
+
+  const computeSplitHint = (e: React.DragEvent): {
+    direction: 'horizontal' | 'vertical';
+    position: 'left' | 'right' | 'top' | 'bottom';
+    targetSessionId?: string;
+    rect?: { x: number; y: number; w: number; h: number };
+  } | null => {
+    const surface = workspaceOverlayRef.current || workspaceInnerRef.current || workspaceOuterRef.current;
+    if (!surface || !workspaceArea.width || !workspaceArea.height) return null;
+    const rect = surface.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+    if (localX < 0 || localX > rect.width || localY < 0 || localY > rect.height) return null;
+
+    let targetSessionId: string | undefined;
+    let targetRect: { x: number; y: number; w: number; h: number } | undefined;
+    Object.entries(activeWorkspaceRects).forEach(([sessionId, area]) => {
+      if (targetSessionId) return;
+      if (
+        localX >= area.x &&
+        localX <= area.x + area.w &&
+        localY >= area.y &&
+        localY <= area.y + area.h
+      ) {
+        targetSessionId = sessionId;
+        targetRect = area;
+      }
+    });
+
+    const baseRect = targetRect || { x: 0, y: 0, w: rect.width, h: rect.height };
+    const relX = (localX - baseRect.x) / baseRect.w;
+    const relY = (localY - baseRect.y) / baseRect.h;
+
+    const prefersVertical = Math.abs(relX - 0.5) > Math.abs(relY - 0.5);
+    const direction = prefersVertical ? 'vertical' : 'horizontal';
+    const position = prefersVertical
+      ? (relX < 0.5 ? 'left' : 'right')
+      : (relY < 0.5 ? 'top' : 'bottom');
+
+    const previewRect = { ...baseRect };
+    if (direction === 'vertical') {
+      previewRect.w = baseRect.w / 2;
+      previewRect.x = position === 'left' ? baseRect.x : baseRect.x + baseRect.w / 2;
+    } else {
+      previewRect.h = baseRect.h / 2;
+      previewRect.y = position === 'top' ? baseRect.y : baseRect.y + baseRect.h / 2;
+    }
+
+    return {
+      direction,
+      position,
+      targetSessionId,
+      rect: previewRect,
+    };
+  };
+
+  const createWorkspaceFromSessions = (
+    baseSessionId: string,
+    joiningSessionId: string,
+    hint: { direction: 'horizontal' | 'vertical'; position: 'left' | 'right' | 'top' | 'bottom'; targetSessionId?: string } | null
+  ) => {
+    if (!hint || baseSessionId === joiningSessionId) return;
+    const base = sessions.find(s => s.id === baseSessionId);
+    const joining = sessions.find(s => s.id === joiningSessionId);
+    if (!base || !joining || base.workspaceId || joining.workspaceId) return;
+
+    const basePane: WorkspaceNode = { id: crypto.randomUUID(), type: 'pane', sessionId: baseSessionId };
+    const newPane: WorkspaceNode = { id: crypto.randomUUID(), type: 'pane', sessionId: joiningSessionId };
+    const children = (hint.position === 'left' || hint.position === 'top') ? [newPane, basePane] : [basePane, newPane];
+
+    const newWorkspace: Workspace = {
+      id: `ws-${crypto.randomUUID()}`,
+      title: 'Workspace',
+      root: {
+        id: crypto.randomUUID(),
+        type: 'split',
+        direction: hint.direction,
+        children,
+        sizes: [1, 1],
+      },
+    };
+
+    setWorkspaces(prev => [...prev, newWorkspace]);
+    setSessions(prev => prev.map(s => {
+      if (s.id === baseSessionId || s.id === joiningSessionId) {
+        return { ...s, workspaceId: newWorkspace.id };
+      }
+      return s;
+    }));
+    setActiveTabId(newWorkspace.id);
+  };
+
+  const addSessionToWorkspace = (
+    workspaceId: string,
+    sessionId: string,
+    hint: { direction: 'horizontal' | 'vertical'; position: 'left' | 'right' | 'top' | 'bottom'; targetSessionId?: string } | null
+  ) => {
+    const targetWorkspace = workspaces.find(w => w.id === workspaceId);
+    if (!targetWorkspace || !hint) return;
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session || session.workspaceId) return;
+
+    const targetSessionId = hint.targetSessionId;
+    const insertPane = (node: WorkspaceNode): WorkspaceNode => {
+      if (node.type === 'pane' && node.sessionId === targetSessionId) {
+        const pane: WorkspaceNode = { id: crypto.randomUUID(), type: 'pane', sessionId };
+        const children = (hint.position === 'left' || hint.position === 'top') ? [pane, node] : [node, pane];
+        return {
+          id: crypto.randomUUID(),
+          type: 'split',
+          direction: hint.direction,
+          children,
+          sizes: [1, 1],
+        };
+      }
+      if (node.type === 'split') {
+        return {
+          ...node,
+          children: node.children.map(child => insertPane(child)),
+        };
+      }
+      return node;
+    };
+
+    setWorkspaces(prev => prev.map(ws => {
+      if (ws.id !== workspaceId) return ws;
+      let newRoot = ws.root;
+      if (targetSessionId) {
+        newRoot = insertPane(ws.root);
+      } else {
+        const pane: WorkspaceNode = { id: crypto.randomUUID(), type: 'pane', sessionId };
+        newRoot = {
+          id: crypto.randomUUID(),
+          type: 'split',
+          direction: hint.direction,
+          children: (hint.position === 'left' || hint.position === 'top') ? [pane, ws.root] : [ws.root, pane],
+          sizes: [1, 1],
+        };
+      }
+      return { ...ws, root: newRoot };
+    }));
+
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, workspaceId } : s));
+    setActiveTabId(workspaceId);
+  };
+
+  const handleWorkspaceDrop = (e: React.DragEvent) => {
+    const draggedSessionId = e.dataTransfer.getData('session-id');
+    if (!draggedSessionId) return;
+    e.preventDefault();
+    const hint = computeSplitHint(e);
+    setDropHint(null);
+
+    if (activeWorkspace) {
+      const draggedSession = sessions.find(s => s.id === draggedSessionId);
+      if (!draggedSession || draggedSession.workspaceId) return;
+      addSessionToWorkspace(activeWorkspace.id, draggedSessionId, hint);
+      return;
+    }
+
+    if (activeSession) {
+      createWorkspaceFromSessions(activeSession.id, draggedSessionId, hint);
+    }
+  };
+
+  const computeWorkspaceRects = (workspace?: Workspace, size?: { width: number; height: number }) => {
+    if (!workspace) return {} as Record<string, { x: number; y: number; w: number; h: number }>;
+    const wTotal = size?.width || 1;
+    const hTotal = size?.height || 1;
+    const rects: Record<string, { x: number; y: number; w: number; h: number }> = {};
+    const walk = (node: WorkspaceNode, area: { x: number; y: number; w: number; h: number }) => {
+      if (node.type === 'pane') {
+        rects[node.sessionId] = area;
+        return;
+      }
+      const isVertical = node.direction === 'vertical';
+      const sizes = (node.sizes && node.sizes.length === node.children.length ? node.sizes : Array(node.children.length).fill(1));
+      const total = sizes.reduce((acc, n) => acc + n, 0) || 1;
+      let offset = 0;
+      node.children.forEach((child, idx) => {
+        const share = sizes[idx] / total;
+        const childArea = isVertical
+          ? { x: area.x + area.w * offset, y: area.y, w: area.w * share, h: area.h }
+          : { x: area.x, y: area.y + area.h * offset, w: area.w, h: area.h * share };
+        walk(child, childArea);
+        offset += share;
+      });
+    };
+    walk(workspace.root, { x: 0, y: 0, w: wTotal, h: hTotal });
+    return rects;
   };
 
   // --- Data Logic ---
@@ -516,6 +755,132 @@ function App() {
     () => (Object.values(buildGroupTree) as GroupNode[]).sort((a, b) => a.name.localeCompare(b.name)),
     [buildGroupTree]
   );
+  const activeWorkspace = useMemo(() => workspaces.find(w => w.id === activeTabId), [workspaces, activeTabId]);
+  const activeSession = useMemo(() => sessions.find(s => s.id === activeTabId), [sessions, activeTabId]);
+  const orphanSessions = useMemo(() => sessions.filter(s => !s.workspaceId), [sessions]);
+  const activeWorkspaceRects = useMemo(() => computeWorkspaceRects(activeWorkspace, workspaceArea), [activeWorkspace, workspaceArea]);
+
+  useEffect(() => {
+    if (!workspaceInnerRef.current) return;
+    const el = workspaceInnerRef.current;
+    const updateSize = () => setWorkspaceArea({ width: el.clientWidth, height: el.clientHeight });
+    updateSize();
+    const observer = new ResizeObserver(() => updateSize());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [activeWorkspace]);
+
+  type ResizerHandle = {
+    id: string;
+    splitId: string;
+    index: number;
+    direction: 'vertical' | 'horizontal';
+    rect: { x: number; y: number; w: number; h: number };
+    splitArea: { w: number; h: number };
+  };
+
+  const collectResizers = (workspace?: Workspace, size?: { width: number; height: number }): ResizerHandle[] => {
+    if (!workspace || !size?.width || !size?.height) return [];
+    const resizers: ResizerHandle[] = [];
+    const walk = (node: WorkspaceNode, area: { x: number; y: number; w: number; h: number }) => {
+      if (node.type === 'pane') return;
+      const isVertical = node.direction === 'vertical';
+      const sizes = (node.sizes && node.sizes.length === node.children.length ? node.sizes : Array(node.children.length).fill(1));
+      const total = sizes.reduce((acc, n) => acc + n, 0) || 1;
+      let offset = 0;
+      node.children.forEach((child, idx) => {
+        const share = sizes[idx] / total;
+        const childArea = isVertical
+          ? { x: area.x + area.w * offset, y: area.y, w: area.w * share, h: area.h }
+          : { x: area.x, y: area.y + area.h * offset, w: area.w, h: area.h * share };
+        if (idx < node.children.length - 1) {
+          const boundary = isVertical ? childArea.x + childArea.w : childArea.y + childArea.h;
+          const rect = isVertical
+            ? { x: boundary - 2, y: area.y, w: 4, h: area.h }
+            : { x: area.x, y: boundary - 2, w: area.w, h: 4 };
+          resizers.push({
+            id: `${node.id}-${idx}`,
+            splitId: node.id,
+            index: idx,
+            direction: node.direction,
+            rect,
+            splitArea: { w: area.w, h: area.h },
+          });
+        }
+        walk(child, childArea);
+        offset += share;
+      });
+    };
+    walk(workspace.root, { x: 0, y: 0, w: size.width, h: size.height });
+    return resizers;
+  };
+
+  const activeResizers = useMemo(() => collectResizers(activeWorkspace, workspaceArea), [activeWorkspace, workspaceArea]);
+
+  const findSplitNode = (node: WorkspaceNode, splitId: string): WorkspaceNode | null => {
+    if (node.type === 'split') {
+      if (node.id === splitId) return node;
+      for (const child of node.children) {
+        const found = findSplitNode(child, splitId);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const updateSplitSizes = (workspaceId: string, splitId: string, sizes: number[]) => {
+    setWorkspaces(prev => prev.map(ws => {
+      if (ws.id !== workspaceId) return ws;
+      const patch = (node: WorkspaceNode): WorkspaceNode => {
+        if (node.type === 'split') {
+          if (node.id === splitId) {
+            return { ...node, sizes };
+          }
+          return { ...node, children: node.children.map(child => patch(child)) };
+        }
+        return node;
+      };
+      return { ...ws, root: patch(ws.root) };
+    }));
+  };
+
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (e: MouseEvent) => {
+      const dimension = resizing.direction === 'vertical' ? resizing.startArea.w : resizing.startArea.h;
+      if (dimension <= 0) return;
+      const total = resizing.startSizes.reduce((acc, n) => acc + n, 0) || 1;
+      const pxSizes = resizing.startSizes.map(s => (s / total) * dimension);
+      const i = resizing.index;
+      const delta = (resizing.direction === 'vertical' ? e.clientX - resizing.startClient.x : e.clientY - resizing.startClient.y);
+      let a = pxSizes[i] + delta;
+      let b = pxSizes[i + 1] - delta;
+      const minPx = Math.min(120, dimension / 2);
+      if (a < minPx) {
+        const diff = minPx - a;
+        a = minPx;
+        b -= diff;
+      }
+      if (b < minPx) {
+        const diff = minPx - b;
+        b = minPx;
+        a -= diff;
+      }
+      const newPxSizes = [...pxSizes];
+      newPxSizes[i] = Math.max(minPx, a);
+      newPxSizes[i + 1] = Math.max(minPx, b);
+      const totalPx = newPxSizes.reduce((acc, n) => acc + n, 0) || 1;
+      const newSizes = newPxSizes.map(n => n / totalPx);
+      updateSplitSizes(resizing.workspaceId, resizing.splitId, newSizes);
+    };
+    const onUp = () => setResizing(null);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [resizing]);
 
   const topTabs = (
     <div className="w-full bg-secondary/90 border-b border-border/60 backdrop-blur app-drag">
@@ -535,13 +900,24 @@ function App() {
         <div className="h-8 px-3 rounded-md border border-border/60 text-muted-foreground text-xs font-semibold cursor-pointer flex items-center gap-2 app-no-drag">
           <Folder size={14} /> SFTP
         </div>
-        {sessions.map(session => (
+        {orphanSessions.map(session => (
           <div
             key={session.id}
             onClick={() => setActiveTabId(session.id)}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('session-id', session.id);
+              setDraggingSessionId(session.id);
+            }}
+            onDragEnd={() => {
+              setDraggingSessionId(null);
+              setDropHint(null);
+            }}
             className={cn(
               "h-8 pl-3 pr-2 min-w-[140px] max-w-[240px] rounded-md border text-xs font-semibold cursor-pointer flex items-center justify-between gap-2 app-no-drag",
-              activeTabId === session.id ? "bg-primary/20 border-primary/60 text-foreground" : "border-border/60 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              activeTabId === session.id ? "bg-primary/20 border-primary/60 text-foreground" : "border-border/60 text-muted-foreground hover:border-primary/40 hover:text-foreground",
+              draggingSessionId === session.id ? "opacity-70" : ""
             )}
           >
             <div className="flex items-center gap-2 truncate">
@@ -557,6 +933,39 @@ function App() {
             </button>
           </div>
         ))}
+        {workspaces.map(workspace => {
+          const paneCount = sessions.filter(s => s.workspaceId === workspace.id).length;
+          const isActive = activeTabId === workspace.id;
+          return (
+            <ContextMenu key={workspace.id}>
+              <ContextMenuTrigger asChild>
+                <div
+                  onClick={() => setActiveTabId(workspace.id)}
+                  className={cn(
+                    "h-8 pl-3 pr-2 min-w-[150px] max-w-[260px] rounded-md border text-xs font-semibold cursor-pointer flex items-center justify-between gap-2 app-no-drag",
+                    isActive ? "bg-primary/20 border-primary/60 text-foreground" : "border-border/60 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  )}
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <LayoutGrid size={14} className={cn("shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
+                    <span className="truncate">{workspace.title}</span>
+                  </div>
+                  <div className="text-[10px] px-2 py-1 rounded-full border border-border/70 bg-background/60 min-w-[28px] text-center">
+                    {paneCount}
+                  </div>
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onClick={() => renameWorkspace(workspace.id)}>
+                  <Edit2 className="mr-2 h-4 w-4" /> Rename
+                </ContextMenuItem>
+                <ContextMenuItem className="text-destructive" onClick={() => closeWorkspace(workspace.id)}>
+                  <Trash2 className="mr-2 h-4 w-4" /> Close
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          );
+        })}
         <Button
           variant="ghost"
           size="icon"
@@ -846,31 +1255,145 @@ function App() {
         </div>
 
         {/* Terminal layer (kept mounted) */}
-        <div className={cn("absolute inset-0 bg-background", isVaultActive ? "opacity-0 pointer-events-none z-0" : "opacity-100 z-10")}>
-          {sessions.map(session => {
+        <div
+          ref={workspaceOuterRef}
+          className={cn("absolute inset-0 bg-background", isVaultActive ? "opacity-0 pointer-events-none z-0" : "opacity-100 z-10")}
+        >
+          {draggingSessionId && (
+            <div
+              ref={workspaceOverlayRef}
+              className="absolute inset-0 z-30"
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes('session-id')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const hint = computeSplitHint(e);
+                setDropHint(hint);
+              }}
+              onDragLeave={(e) => {
+                if (!e.dataTransfer.types.includes('session-id')) return;
+                setDropHint(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDraggingSessionId(null);
+                handleWorkspaceDrop(e);
+              }}
+            >
+              {dropHint && (
+                <div className="absolute inset-0 pointer-events-none">
+                  <div
+                    className="absolute bg-emerald-600/35 border border-emerald-400/70 backdrop-blur-sm transition-all duration-150"
+                    style={{
+                      width: dropHint.rect ? `${dropHint.rect.w}px` : dropHint.direction === 'vertical' ? '50%' : '100%',
+                      height: dropHint.rect ? `${dropHint.rect.h}px` : dropHint.direction === 'vertical' ? '100%' : '50%',
+                      left: dropHint.rect ? `${dropHint.rect.x}px` : dropHint.direction === 'vertical' ? (dropHint.position === 'left' ? 0 : '50%') : 0,
+                      top: dropHint.rect ? `${dropHint.rect.y}px` : dropHint.direction === 'vertical' ? 0 : (dropHint.position === 'top' ? 0 : '50%'),
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <div ref={workspaceInnerRef} className="absolute inset-0 p-3">
+            {sessions.map(session => {
               const host = hosts.find(h => h.id === session.hostId);
               if (!host) return null;
-              const isVisible = activeTabId === session.id && !isVaultActive;
+              const inActiveWorkspace = !!activeWorkspace && session.workspaceId === activeWorkspace.id;
+              const isActiveSolo = activeTabId === session.id && !activeWorkspace && !isVaultActive;
+              const isVisible = (inActiveWorkspace || isActiveSolo) && !isVaultActive;
+              const rect = inActiveWorkspace ? activeWorkspaceRects[session.id] : null;
+              const isFocused = focusedSessionId === session.id && isVisible;
+
+              const layoutStyle = rect
+                ? {
+                    left: `${rect.x}px`,
+                    top: `${rect.y}px`,
+                    width: `${rect.w}px`,
+                    height: `${rect.h}px`,
+                  }
+                : { left: 0, top: 0, width: '100%', height: '100%' };
+
               return (
-                  <div 
-                      key={session.id} 
-                      className={cn("absolute inset-0 bg-background", isVisible ? "z-10" : "opacity-0 pointer-events-none")}
-                  >
-                      <Terminal 
-                          host={host} 
-                          keys={keys} 
-                          snippets={snippets} 
-                          isVisible={isVisible}
-                          fontSize={14}
-                          terminalTheme={currentTerminalTheme}
-                          sessionId={session.id}
-                          onStatusChange={(next) => updateSessionStatus(session.id, next)}
-                          onSessionExit={() => updateSessionStatus(session.id, 'disconnected')}
-                          onOsDetected={(hid, distro) => updateHostDistro(hid, distro)}
-                      />
-                  </div>
+                <div
+                  key={session.id}
+                  className={cn(
+                    "absolute bg-background transition-opacity border border-border/60",
+                    isVisible ? "z-10" : "opacity-0 pointer-events-none"
+                  )}
+                  style={
+                    isFocused
+                      ? {
+                          ...layoutStyle,
+                          outline: '2px solid hsl(var(--primary))',
+                          outlineOffset: -4,
+                          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12)',
+                        }
+                      : layoutStyle
+                  }
+                  onClick={() => setFocusedSessionId(session.id)}
+                >
+                  <Terminal
+                    host={host}
+                    keys={keys}
+                    snippets={snippets}
+                    isVisible={isVisible}
+                    fontSize={14}
+                    terminalTheme={currentTerminalTheme}
+                    sessionId={session.id}
+                    onStatusChange={(next) => updateSessionStatus(session.id, next)}
+                    onSessionExit={() => updateSessionStatus(session.id, 'disconnected')}
+                    onOsDetected={(hid, distro) => updateHostDistro(hid, distro)}
+                  />
+                </div>
               );
-          })}
+            })}
+            {activeResizers.map(handle => (
+              <div
+                key={handle.id}
+                className={cn("absolute group", handle.direction === 'vertical' ? "cursor-ew-resize" : "cursor-ns-resize")}
+                style={{
+                  left: `${handle.rect.x - 3}px`,
+                  top: `${handle.rect.y - 3}px`,
+                  width: `${handle.rect.w + 6}px`,
+                  height: `${handle.rect.h + 6}px`,
+                  zIndex: 25,
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const ws = activeWorkspace;
+                  if (!ws) return;
+                  const split = findSplitNode(ws.root, handle.splitId);
+                  const childCount = split && split.type === 'split' ? split.children.length : 0;
+                  const sizes = split && split.type === 'split' && split.sizes && split.sizes.length === childCount
+                    ? split.sizes
+                    : Array(childCount).fill(1);
+                  setResizing({
+                    workspaceId: ws.id,
+                    splitId: handle.splitId,
+                    index: handle.index,
+                    direction: handle.direction,
+                    startSizes: sizes.length ? sizes : [1, 1],
+                    startArea: handle.splitArea,
+                    startClient: { x: e.clientX, y: e.clientY },
+                  });
+                }}
+              >
+                <div
+                  className={cn(
+                    "absolute bg-border/70 group-hover:bg-primary/60 transition-colors",
+                    handle.direction === 'vertical' ? "w-px h-full left-1/2 -translate-x-1/2" : "h-px w-full top-1/2 -translate-y-1/2"
+                  )}
+                  style={{
+                    top: handle.direction === 'vertical' ? 0 : undefined,
+                    left: handle.direction === 'vertical' ? undefined : 0,
+                  }}
+                />
+              </div>
+            ))}
+          </div>
           {showAssistant && (
             <div className="absolute right-0 top-0 bottom-0 z-20 shadow-2xl animate-in slide-in-from-right-10">
                 <AssistantPanel />
