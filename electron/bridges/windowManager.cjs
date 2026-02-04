@@ -5,6 +5,7 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
+const globalShortcutBridge = require("./globalShortcutBridge.cjs");
 
 // Theme colors configuration
 const THEME_COLORS = {
@@ -653,6 +654,12 @@ async function createWindow(electronModule, options) {
 
   // Save state when window is about to close
   win.on("close", (event) => {
+    // Check if close-to-tray is enabled
+    if (globalShortcutBridge.handleWindowClose(event, win)) {
+      // Window was hidden to tray, don't proceed with close
+      return;
+    }
+
     if (windowStateCloseRequested) {
       return;
     }
