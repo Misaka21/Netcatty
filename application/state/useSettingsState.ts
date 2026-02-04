@@ -597,9 +597,17 @@ export const useSettingsState = () => {
     const bridge = netcattyBridge.get();
     if (bridge?.registerGlobalHotkey) {
       if (toggleWindowHotkey) {
-        bridge.registerGlobalHotkey(toggleWindowHotkey).catch((err) => {
-          console.warn('[GlobalHotkey] Failed to register hotkey:', err);
-        });
+        bridge
+          .registerGlobalHotkey(toggleWindowHotkey)
+          .then((result) => {
+            if (result?.success === false) {
+              console.warn('[GlobalHotkey] Hotkey registration failed:', result.error);
+              setToggleWindowHotkey('');
+            }
+          })
+          .catch((err) => {
+            console.warn('[GlobalHotkey] Failed to register hotkey:', err);
+          });
       } else {
         bridge.unregisterGlobalHotkey?.().catch((err) => {
           console.warn('[GlobalHotkey] Failed to unregister hotkey:', err);
