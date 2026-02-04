@@ -748,6 +748,10 @@ app.on("window-all-closed", () => {
   }
 });
 
+app.on("before-quit", () => {
+  windowManager.setIsQuitting(true);
+});
+
 // Cleanup all PTY sessions and port forwarding tunnels before quitting
 app.on("will-quit", () => {
   try {
