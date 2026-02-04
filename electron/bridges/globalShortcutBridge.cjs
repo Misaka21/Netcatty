@@ -4,6 +4,7 @@
  */
 
 const path = require("node:path");
+const fs = require("node:fs");
 
 let electronModule = null;
 let mainWindow = null;
@@ -195,7 +196,7 @@ function createTray(iconPath) {
   try {
     // Load the tray icon
     let trayIcon;
-    if (iconPath && require("node:fs").existsSync(iconPath)) {
+    if (iconPath && fs.existsSync(iconPath)) {
       trayIcon = nativeImage.createFromPath(iconPath);
       // Resize for tray (16x16 on most platforms, 22x22 on some Linux)
       if (process.platform === "darwin") {

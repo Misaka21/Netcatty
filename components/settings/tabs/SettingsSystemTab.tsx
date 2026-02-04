@@ -51,7 +51,7 @@ const SettingsSystemTab: React.FC<SettingsSystemTabProps> = ({
   setCloseToTray,
 }) => {
   const { t } = useI18n();
-  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+  const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
   const [tempDirInfo, setTempDirInfo] = useState<TempDirInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);

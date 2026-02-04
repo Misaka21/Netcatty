@@ -597,12 +597,12 @@ export const useSettingsState = () => {
     const bridge = netcattyBridge.get();
     if (bridge?.registerGlobalHotkey) {
       if (toggleWindowHotkey) {
-        bridge.registerGlobalHotkey(toggleWindowHotkey).catch(() => {
-          // ignore registration errors
+        bridge.registerGlobalHotkey(toggleWindowHotkey).catch((err) => {
+          console.warn('[GlobalHotkey] Failed to register hotkey:', err);
         });
       } else {
-        bridge.unregisterGlobalHotkey?.().catch(() => {
-          // ignore
+        bridge.unregisterGlobalHotkey?.().catch((err) => {
+          console.warn('[GlobalHotkey] Failed to unregister hotkey:', err);
         });
       }
     }
@@ -615,8 +615,8 @@ export const useSettingsState = () => {
     // Update main process tray behavior
     const bridge = netcattyBridge.get();
     if (bridge?.setCloseToTray) {
-      bridge.setCloseToTray(closeToTray).catch(() => {
-        // ignore
+      bridge.setCloseToTray(closeToTray).catch((err) => {
+        console.warn('[SystemTray] Failed to set close-to-tray:', err);
       });
     }
   }, [closeToTray, notifySettingsChanged]);
