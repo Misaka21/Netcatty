@@ -13,6 +13,26 @@ let closeToTray = false;
 let currentHotkey = null;
 let hotkeyEnabled = false;
 
+function resolveTrayIconPath(iconPath) {
+  const { app } = electronModule;
+  const candidates = [
+    iconPath,
+    path.join(app.getAppPath(), "dist", "tray-icon.svg"),
+    path.join(app.getAppPath(), "dist", "tray-icon.png"),
+    path.join(app.getAppPath(), "public", "tray-icon.svg"),
+    path.join(__dirname, "../../public/tray-icon.svg"),
+    path.join(__dirname, "../../dist/tray-icon.svg"),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Initialize the bridge with dependencies
  */
@@ -196,8 +216,9 @@ function createTray(iconPath) {
   try {
     // Load the tray icon
     let trayIcon;
-    if (iconPath && fs.existsSync(iconPath)) {
-      trayIcon = nativeImage.createFromPath(iconPath);
+    const resolvedIconPath = resolveTrayIconPath(iconPath);
+    if (resolvedIconPath) {
+      trayIcon = nativeImage.createFromPath(resolvedIconPath);
       // Resize for tray (16x16 on most platforms, 22x22 on some Linux)
       if (process.platform === "darwin") {
         trayIcon = trayIcon.resize({ width: 16, height: 16 });
