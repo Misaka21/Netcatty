@@ -224,10 +224,16 @@ export const useSettingsState = () => {
 
   // Global Toggle Window Settings (Quake Mode)
   const [toggleWindowHotkey, setToggleWindowHotkey] = useState<string>(() => {
-    return readStoredString(STORAGE_KEY_TOGGLE_WINDOW_HOTKEY) || '';
+    const stored = readStoredString(STORAGE_KEY_TOGGLE_WINDOW_HOTKEY);
+    if (stored !== null) return stored;
+    // Default: Ctrl+` (Control+backtick) - similar to VS Code terminal toggle
+    const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
+    return isMac ? '⌃ + `' : 'Ctrl + `';
   });
   const [closeToTray, setCloseToTray] = useState<boolean>(() => {
     const stored = readStoredString(STORAGE_KEY_CLOSE_TO_TRAY);
+    // Default to true (enabled)
+    if (stored === null) return true;
     return stored === 'true';
   });
 
