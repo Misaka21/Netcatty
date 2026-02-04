@@ -51,7 +51,7 @@ function toElectronAccelerator(hotkeyStr) {
       return "CommandOrControl";
     }
     if (part === "⌃" || part === "Ctrl" || part === "Control") {
-      return "CommandOrControl";
+      return "Control";
     }
     if (part === "⌥" || part === "Alt" || part === "Option") {
       return "Alt";
