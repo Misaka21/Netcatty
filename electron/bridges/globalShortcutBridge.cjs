@@ -7,7 +7,6 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 let electronModule = null;
-let mainWindow = null;
 let tray = null;
 let closeToTray = false;
 let currentHotkey = null;
@@ -15,13 +14,19 @@ let hotkeyEnabled = false;
 
 function resolveTrayIconPath(iconPath) {
   const { app } = electronModule;
+  
+  // Use different icons for different platforms
+  // macOS: template image (black + transparent, system handles color)
+  // Windows/Linux: colored icon
+  const isMac = process.platform === "darwin";
+  const iconName = isMac ? "tray-iconTemplate.png" : "tray-icon.png";
+  
   const candidates = [
     iconPath,
-    path.join(app.getAppPath(), "dist", "tray-icon.svg"),
-    path.join(app.getAppPath(), "dist", "tray-icon.png"),
-    path.join(app.getAppPath(), "public", "tray-icon.svg"),
-    path.join(__dirname, "../../public/tray-icon.svg"),
-    path.join(__dirname, "../../dist/tray-icon.svg"),
+    path.join(app.getAppPath(), "dist", iconName),
+    path.join(app.getAppPath(), "public", iconName),
+    path.join(__dirname, "../../public", iconName),
+    path.join(__dirname, "../../dist", iconName),
   ].filter(Boolean);
 
   for (const candidate of candidates) {
