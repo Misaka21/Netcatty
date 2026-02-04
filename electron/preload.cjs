@@ -761,8 +761,8 @@ const api = {
     ipcRenderer.invoke("netcatty:globalHotkey:status"),
 
   // System Tray / Close to Tray
-  setCloseToTray: (enabled, iconPath) =>
-    ipcRenderer.invoke("netcatty:tray:setCloseToTray", { enabled, iconPath }),
+  setCloseToTray: (enabled) =>
+    ipcRenderer.invoke("netcatty:tray:setCloseToTray", { enabled }),
   isCloseToTray: () =>
     ipcRenderer.invoke("netcatty:tray:isCloseToTray"),
 

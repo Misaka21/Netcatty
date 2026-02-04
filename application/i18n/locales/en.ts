@@ -104,7 +104,7 @@ const en: Messages = {
   'settings.globalHotkey.toggleWindow': 'Toggle Window',
   'settings.globalHotkey.toggleWindowDesc': 'Press a key combination to set a global shortcut for showing/hiding the window.',
   'settings.globalHotkey.notSet': 'Not set',
-  'settings.globalHotkey.clear': 'Clear hotkey',
+  'settings.globalHotkey.reset': 'Reset to default',
   'settings.globalHotkey.closeToTray': 'Close to System Tray',
   'settings.globalHotkey.closeToTrayDesc': 'When enabled, closing the window will minimize to the system tray instead of quitting.',
   'settings.globalHotkey.hint': 'Global hotkey works system-wide to quickly show or hide the window (Quake-style terminal).',

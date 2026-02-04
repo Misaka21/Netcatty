@@ -661,7 +661,10 @@ async function createWindow(electronModule, options) {
   win.on("close", (event) => {
     // Check if close-to-tray is enabled
     if (!isQuitting && globalShortcutBridge.handleWindowClose(event, win)) {
-      // Window was hidden to tray, don't proceed with close
+      // Window was hidden to tray - save state before returning
+      if (saveStateTimer) clearTimeout(saveStateTimer);
+      const state = getWindowBoundsState(win, lastNormalBounds);
+      if (state) saveWindowStateSync(state);
       return;
     }
 

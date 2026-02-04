@@ -36,6 +36,7 @@ interface SettingsSystemTabProps {
   setToggleWindowHotkey: (hotkey: string) => void;
   closeToTray: boolean;
   setCloseToTray: (enabled: boolean) => void;
+  hotkeyRegistrationError: string | null;
 }
 
 const SettingsSystemTab: React.FC<SettingsSystemTabProps> = ({
@@ -49,6 +50,7 @@ const SettingsSystemTab: React.FC<SettingsSystemTabProps> = ({
   setToggleWindowHotkey,
   closeToTray,
   setCloseToTray,
+  hotkeyRegistrationError,
 }) => {
   const { t } = useI18n();
   const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
@@ -133,10 +135,12 @@ const SettingsSystemTab: React.FC<SettingsSystemTabProps> = ({
     setIsRecordingHotkey(false);
   }, []);
 
-  const handleClearHotkey = useCallback(() => {
-    setToggleWindowHotkey("");
+  const handleResetHotkey = useCallback(() => {
+    // Reset to default hotkey (Ctrl+` or ⌃+` on Mac)
+    const defaultHotkey = isMac ? '⌃ + `' : 'Ctrl + `';
+    setToggleWindowHotkey(defaultHotkey);
     setHotkeyError(null);
-  }, [setToggleWindowHotkey]);
+  }, [isMac, setToggleWindowHotkey]);
 
   // Hotkey recording effect
   useEffect(() => {
@@ -388,17 +392,17 @@ const SettingsSystemTab: React.FC<SettingsSystemTabProps> = ({
                   </button>
                   {toggleWindowHotkey && (
                     <button
-                      onClick={handleClearHotkey}
+                      onClick={handleResetHotkey}
                       className="p-1 hover:bg-muted rounded"
-                      title={t("settings.globalHotkey.clear")}
+                      title={t("settings.globalHotkey.reset")}
                     >
                       <RotateCcw size={14} />
                     </button>
                   )}
                 </div>
               </SettingRow>
-              {hotkeyError && (
-                <p className="text-sm text-destructive">{hotkeyError}</p>
+              {(hotkeyError || hotkeyRegistrationError) && (
+                <p className="text-sm text-destructive">{hotkeyError || hotkeyRegistrationError}</p>
               )}
 
               {/* Close to Tray */}

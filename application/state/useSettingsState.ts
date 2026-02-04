@@ -236,6 +236,7 @@ export const useSettingsState = () => {
     if (stored === null) return true;
     return stored === 'true';
   });
+  const [hotkeyRegistrationError, setHotkeyRegistrationError] = useState<string | null>(null);
 
   // Helper to notify other windows about settings changes via IPC
   const notifySettingsChanged = useCallback((key: string, value: unknown) => {
@@ -603,18 +604,21 @@ export const useSettingsState = () => {
     const bridge = netcattyBridge.get();
     if (bridge?.registerGlobalHotkey) {
       if (toggleWindowHotkey) {
+        setHotkeyRegistrationError(null);
         bridge
           .registerGlobalHotkey(toggleWindowHotkey)
           .then((result) => {
             if (result?.success === false) {
               console.warn('[GlobalHotkey] Hotkey registration failed:', result.error);
-              setToggleWindowHotkey('');
+              setHotkeyRegistrationError(result.error || 'Failed to register hotkey');
             }
           })
           .catch((err) => {
             console.warn('[GlobalHotkey] Failed to register hotkey:', err);
+            setHotkeyRegistrationError(err?.message || 'Failed to register hotkey');
           });
       } else {
+        setHotkeyRegistrationError(null);
         bridge.unregisterGlobalHotkey?.().catch((err) => {
           console.warn('[GlobalHotkey] Failed to unregister hotkey:', err);
         });
@@ -764,5 +768,6 @@ export const useSettingsState = () => {
     setToggleWindowHotkey,
     closeToTray,
     setCloseToTray,
+    hotkeyRegistrationError,
   };
 };

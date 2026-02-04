@@ -587,7 +587,7 @@ declare global {
     getGlobalHotkeyStatus?(): Promise<{ enabled: boolean; hotkey: string | null }>;
 
     // System Tray / Close to Tray
-    setCloseToTray?(enabled: boolean, iconPath?: string): Promise<{ success: boolean; enabled: boolean }>;
+    setCloseToTray?(enabled: boolean): Promise<{ success: boolean; enabled: boolean }>;
     isCloseToTray?(): Promise<{ enabled: boolean }>;
   }
 

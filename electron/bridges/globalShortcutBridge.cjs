@@ -12,7 +12,7 @@ let closeToTray = false;
 let currentHotkey = null;
 let hotkeyEnabled = false;
 
-function resolveTrayIconPath(iconPath) {
+function resolveTrayIconPath() {
   const { app } = electronModule;
   
   // Use different icons for different platforms
@@ -21,13 +21,13 @@ function resolveTrayIconPath(iconPath) {
   const isMac = process.platform === "darwin";
   const iconName = isMac ? "tray-iconTemplate.png" : "tray-icon.png";
   
+  // Security: Only use known packaged icon locations, ignore renderer-provided paths
   const candidates = [
-    iconPath,
     path.join(app.getAppPath(), "dist", iconName),
     path.join(app.getAppPath(), "public", iconName),
     path.join(__dirname, "../../public", iconName),
     path.join(__dirname, "../../dist", iconName),
-  ].filter(Boolean);
+  ];
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
@@ -118,22 +118,35 @@ function toggleWindowVisibility() {
   if (!win) return;
 
   try {
-    if (win.isVisible()) {
+    // Check if window is minimized first - minimized windows may still report isVisible() = true
+    if (win.isMinimized()) {
+      win.restore();
+      win.show();
+      win.focus();
+      const { app } = electronModule;
+      try {
+        app.focus({ steal: true });
+      } catch {
+        // ignore
+      }
+    } else if (win.isVisible()) {
       if (win.isFocused()) {
         // Window is visible and focused - hide it
         win.hide();
       } else {
         // Window is visible but not focused - focus it
         win.focus();
+        const { app } = electronModule;
+        try {
+          app.focus({ steal: true });
+        } catch {
+          // ignore
+        }
       }
     } else {
       // Window is hidden - show and focus it
-      if (win.isMinimized()) {
-        win.restore();
-      }
       win.show();
-      win.focus();
-      // Steal focus on macOS
+        win.focus();
       const { app } = electronModule;
       try {
         app.focus({ steal: true });
@@ -210,7 +223,7 @@ function unregisterGlobalHotkey() {
 /**
  * Create the system tray icon
  */
-function createTray(iconPath) {
+function createTray() {
   const { Tray, Menu, app, nativeImage } = electronModule;
 
   if (tray) {
@@ -221,7 +234,7 @@ function createTray(iconPath) {
   try {
     // Load the tray icon
     let trayIcon;
-    const resolvedIconPath = resolveTrayIconPath(iconPath);
+    const resolvedIconPath = resolveTrayIconPath();
     if (resolvedIconPath) {
       trayIcon = nativeImage.createFromPath(resolvedIconPath);
       // Resize for tray (16x16 on most platforms, 22x22 on some Linux)
@@ -291,13 +304,13 @@ function destroyTray() {
 /**
  * Set close-to-tray behavior
  */
-function setCloseToTray(enabled, iconPath) {
+function setCloseToTray(enabled) {
   closeToTray = !!enabled;
 
   if (closeToTray) {
     // Create tray if it doesn't exist
     if (!tray) {
-      createTray(iconPath);
+      createTray();
     }
   } else {
     // Destroy tray if it exists
@@ -357,8 +370,8 @@ function registerHandlers(ipcMain) {
   });
 
   // Set close-to-tray behavior
-  ipcMain.handle("netcatty:tray:setCloseToTray", async (_event, { enabled, iconPath }) => {
-    return setCloseToTray(enabled, iconPath);
+  ipcMain.handle("netcatty:tray:setCloseToTray", async (_event, { enabled }) => {
+    return setCloseToTray(enabled);
   });
 
   // Get close-to-tray status
