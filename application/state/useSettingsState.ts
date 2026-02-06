@@ -319,6 +319,18 @@ export const useSettingsState = () => {
   // Listen for settings changes from other windows via IPC
   useEffect(() => {
     const bridge = netcattyBridge.get();
+      if (key === STORAGE_KEY_TERM_SETTINGS) {
+        if (value && typeof value === 'object') {
+          setTerminalSettings((prev) => ({ ...prev, ...value as Partial<TerminalSettings> }));
+        } else if (typeof value === 'string') {
+          try {
+            const parsed = JSON.parse(value) as Partial<TerminalSettings>;
+            setTerminalSettings((prev) => ({ ...prev, ...parsed }));
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
     if (!bridge?.onSettingsChanged) return;
     const unsubscribe = bridge.onSettingsChanged((payload) => {
       const { key, value } = payload;
@@ -499,7 +511,8 @@ export const useSettingsState = () => {
       }
       // Sync SFTP show hidden files setting from other windows
       if (e.key === STORAGE_KEY_SFTP_SHOW_HIDDEN_FILES && e.newValue !== null) {
-        const newValue = e.newValue === 'true';
+    notifySettingsChanged(STORAGE_KEY_TERM_SETTINGS, terminalSettings);
+  }, [terminalSettings, notifySettingsChanged]);
         if (newValue !== sftpShowHiddenFiles) {
           setSftpShowHiddenFiles(newValue);
         }
