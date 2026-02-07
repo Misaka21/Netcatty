@@ -237,7 +237,7 @@ export const TextEditorModal: React.FC<TextEditorModalProps> = ({
     handleSaveRef.current = handleSave;
   }, [handleSave]);
 
-  const readClipboardText = useCallback(async (): Promise<string> => {
+  const readClipboardText = useCallback(async (): Promise<string | null> => {
     try {
       if (navigator.clipboard?.readText) {
         return await navigator.clipboard.readText();
@@ -249,7 +249,8 @@ export const TextEditorModal: React.FC<TextEditorModalProps> = ({
     try {
       return await readClipboardTextFromBridge();
     } catch {
-      return '';
+      // Both clipboard APIs unavailable; signal failure so caller can fall back.
+      return null;
     }
   }, [readClipboardTextFromBridge]);
 
@@ -258,6 +259,11 @@ export const TextEditorModal: React.FC<TextEditorModalProps> = ({
     if (!editor) return;
 
     const text = await readClipboardText();
+    if (text === null) {
+      // Clipboard read unavailable; fall back to Monaco's native paste.
+      editor.trigger('keyboard', 'editor.action.clipboardPasteAction', null);
+      return;
+    }
     if (!text) return;
 
     const selections = editor.getSelections();
