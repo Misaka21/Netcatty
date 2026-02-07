@@ -269,11 +269,16 @@ export const TextEditorModal: React.FC<TextEditorModalProps> = ({
     const selections = editor.getSelections();
     if (!selections || selections.length === 0) return;
 
+    // Match Monaco's default multicursorPaste:'spread' behavior:
+    // distribute one line per cursor when line count equals cursor count.
+    const lines = text.split(/\r\n|\n/);
+    const distribute = selections.length > 1 && lines.length === selections.length;
+
     editor.executeEdits(
       'netcatty-paste',
-      selections.map((selection) => ({
+      selections.map((selection, i) => ({
         range: selection,
-        text,
+        text: distribute ? lines[i] : text,
         forceMoveMarkers: true,
       })),
     );
