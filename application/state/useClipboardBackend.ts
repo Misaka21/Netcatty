@@ -4,14 +4,10 @@ import { netcattyBridge } from "../../infrastructure/services/netcattyBridge";
 export const useClipboardBackend = () => {
   const readClipboardText = useCallback(async (): Promise<string> => {
     const bridge = netcattyBridge.get();
-    if (!bridge?.readClipboardText) return "";
+    if (!bridge?.readClipboardText) throw new Error("clipboard bridge unavailable");
 
-    try {
-      const text = await bridge.readClipboardText();
-      return typeof text === "string" ? text : "";
-    } catch {
-      return "";
-    }
+    const text = await bridge.readClipboardText();
+    return typeof text === "string" ? text : "";
   }, []);
 
   return { readClipboardText };
