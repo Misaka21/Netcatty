@@ -545,7 +545,7 @@ export const HostTreeView: React.FC<HostTreeViewProps> = ({
       {ungroupedHosts.length === 0 && groupTree.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
           <Server size={48} className="mx-auto mb-4 opacity-50" />
-          <p className="text-sm">{t("vault.hosts.empty")}</p>
+          <p className="text-sm">{t("vault.hosts.empty.title")}</p>
         </div>
       )}
     </div>
